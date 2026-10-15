@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="id"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Buku Chart">
+<title>Buku Chart</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<link rel="stylesheet" href="styles.css">
+</head><body>
+<svg style="position:absolute;width:0;height:0" aria-hidden="true"><defs>
+<symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+<symbol id="i-eraser" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></symbol>
+<symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+<symbol id="i-redo" viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="i-next" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8Z"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+<symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+</defs></svg>
+
+<div id="app" data-mode="nav">
+  <nav id="rail" aria-label="Navigasi utama">
+    <button class="rbtn" data-nav="bank" aria-current="true"><svg class="ic"><use href="#i-folder"/></svg><span>Bank</span></button>
+    <button class="rbtn" data-nav="sets" aria-current="false"><svg class="ic"><use href="#i-list"/></svg><span>Setlist</span></button>
+    <div class="rail-sp"></div>
+    <button class="rbtn" id="btnBackup"><svg class="ic"><use href="#i-save"/></svg><span>Cadangan</span></button>
+    <button class="rbtn" id="btnTheme"><svg class="ic"><use href="#i-theme"/></svg><span id="themeLbl">Otomatis</span></button>
+  </nav>
+
+  <main id="main">
+    <section class="screen" id="scr-bank"></section>
+    <section class="screen" id="scr-sets" hidden></section>
+
+    <section class="screen" id="scr-editor" hidden>
+      <div class="tb">
+        <button class="icon-btn" id="edBack" aria-label="Kembali ke bank lagu"><svg class="ic"><use href="#i-back"/></svg></button>
+        <input class="field title-in" id="edTitle" maxlength="60" placeholder="Judul lagu" aria-label="Judul lagu">
+        <label class="mini">BPM<input class="field" id="edBpm" inputmode="numeric" maxlength="3"></label>
+        <label class="mini">Birama<input class="field" id="edMeter" maxlength="5"></label>
+        <button class="icon-btn" id="pgPrev" aria-label="Halaman sebelumnya"><svg class="ic"><use href="#i-back"/></svg></button>
+        <span class="chip" id="pgLbl">Hal 1/1</span>
+        <button class="icon-btn" id="pgNext" aria-label="Halaman berikutnya"><svg class="ic"><use href="#i-next"/></svg></button>
+        <button class="icon-btn" id="pgAdd" aria-label="Tambah halaman"><svg class="ic"><use href="#i-plus"/></svg></button>
+        <button class="icon-btn" id="edMore" aria-label="Opsi lagu"><svg class="ic"><use href="#i-more"/></svg></button>
+      </div>
+      <div class="edbody">
+        <div class="pal" id="pal">
+          <button class="icon-btn" data-tool="pen" aria-label="Pena" aria-pressed="true"><svg class="ic"><use href="#i-pen"/></svg></button>
+          <button class="icon-btn" data-tool="eraser" aria-label="Penghapus" aria-pressed="false"><svg class="ic"><use href="#i-eraser"/></svg></button>
+          <hr>
+          <button class="icon-btn sw" data-ink="0" aria-label="Tinta utama" aria-pressed="true"><i style="background:var(--note)"></i></button>
+          <button class="icon-btn sw" data-ink="1" aria-label="Tinta penanda" aria-pressed="false"><i style="background:var(--mark)"></i></button>
+          <hr>
+          <button class="icon-btn szb" data-size="0" aria-label="Tipis" aria-pressed="false"><i style="height:2px"></i></button>
+          <button class="icon-btn szb" data-size="1" aria-label="Sedang" aria-pressed="true"><i style="height:3px"></i></button>
+          <button class="icon-btn szb" data-size="2" aria-label="Tebal" aria-pressed="false"><i style="height:5px"></i></button>
+          <hr>
+          <button class="icon-btn" id="edUndo" aria-label="Urungkan"><svg class="ic"><use href="#i-undo"/></svg></button>
+          <button class="icon-btn" id="edRedo" aria-label="Ulangi"><svg class="ic"><use href="#i-redo"/></svg></button>
+          <hr>
+          <button class="icon-btn" id="edClear" aria-label="Kosongkan halaman"><svg class="ic"><use href="#i-trash"/></svg></button>
+        </div>
+        <div class="stage" id="edStage"><canvas id="edCanvas"></canvas></div>
+      </div>
+    </section>
+
+    <section class="screen" id="scr-perf" hidden>
+      <div class="ptop">
+        <button class="icon-btn" id="pExit" aria-label="Keluar dari mode tampil"><svg class="ic"><use href="#i-x"/></svg></button>
+        <span class="pcount" id="pCount">1/1</span>
+        <h2 class="ptitle" id="pTitle"></h2>
+        <span class="chip" id="pBpm"></span>
+        <span class="chip" id="pMeter"></span>
+        <span class="chip" id="pPg"></span>
+        <button class="btn" id="pList"><svg class="ic"><use href="#i-list"/></svg>Daftar</button>
+      </div>
+      <div class="pstage" id="pStage"><canvas id="pCanvas"></canvas></div>
+      <div class="pbar">
+        <button class="pbtn" id="pPrev"></button>
+        <button class="pbtn next" id="pNext"></button>
+      </div>
+      <div class="drawer" id="pDrawer" hidden>
+        <h3>Setlist</h3>
+        <div class="list" id="pDrawerList"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="modal" hidden>
+  <div class="sheet" id="mSheet" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="sheet-h"><h3 id="mTitle"></h3><button class="icon-btn" id="mClose" aria-label="Tutup"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="sheet-b" id="mBody"></div>
+    <div class="sheet-f" id="mFoot" hidden></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="app.js"></script>
+</body></html>
