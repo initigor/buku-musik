@@ -13,8 +13,8 @@ dengan Apple Pencil, bank lagu berfolder, dan setlist dengan mode tampil. Dipaka
 
 ## Arsitektur singkat
 - Data: `folders`, `songs`, `setlists` di IndexedDB bernama `buku-chart`. Semuanya dimuat ke memori saat start dan ditulis lewat `saveSong` / `saveFolder` / `saveSetlist`. Preferensi tampilan di localStorage (`bc-ui`).
-- Lagu: `{id, folderId, title, bpm, meter, paper, pages:[{strokes}]}`. Coretan disimpan sebagai vektor `{w, c, pts:[x, y, tekanan, ...]}` dalam koordinat logis 1200x800.
-- Kanvas: satu kanvas offscreen menyimpan coretan yang sudah jadi; kanvas tampil menggambar ulang dari situ plus coretan yang sedang ditulis. Pena dan penghapus memakai pointer events dengan `touch-action: none`. Jari hanya menulis jika opsi dinyalakan di menu.
+- Lagu: `{id, folderId, title, bpm, meter, paper, size, pages:[{strokes}]}`. Coretan disimpan sebagai vektor `{w, c, pts:[x, y, tekanan, ...]}` dalam koordinat logis. `size` = `a4p` (1200x1697, default) atau `a4l` (1697x1200); lagu lama (1200x800) dimigrasi ke `a4p` dengan koordinat tetap, dan jarak sistem staff tetap seperti kertas lama sehingga tulisan lama tetap sejajar.
+- Kanvas: satu kanvas offscreen menyimpan coretan yang sudah jadi; kanvas tampil menggambar ulang dari situ. Saat menulis hanya segmen baru yang digambar (`strokeInc`), supaya menulis cepat tetap mulus. Lebar kertas = lebar layar di editor, sisanya digulir. Penghapus memotong bagian coretan di bawah lingkaran penghapus (`clipStroke`), ukurannya mengikuti tombol tipis/sedang/tebal. Pena dan penghapus memakai pointer events dengan `touch-action: none`. Jari menggulir kertas; jari baru menulis jika opsi dinyalakan di menu.
 - Mode tampil: tombol "berikutnya" maju per halaman lalu per lagu. Ada tombol besar, swipe, dan tombol panah/PageDown (untuk pedal Bluetooth).
 - Cadangan: ekspor dan impor JSON lewat menu Cadangan.
 
