@@ -89,11 +89,14 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .stage{flex:1;min-width:0;min-height:0;background:var(--panel2);border-radius:16px;display:grid;place-items:center;overflow:hidden;position:relative}
 #edStage{display:grid;place-items:start center;overflow-x:hidden;overflow-y:auto;padding:10px;overscroll-behavior:contain}
 .stage canvas{display:block;border-radius:6px;box-shadow:0 1px 0 var(--line),0 10px 30px rgba(0,0,0,.18);touch-action:none}
+#edWrap{position:relative;border-radius:6px;background:var(--paper);box-shadow:0 1px 0 var(--line),0 10px 30px rgba(0,0,0,.18)}
+#edWrap canvas{position:absolute;left:0;box-shadow:none;border-radius:0}
 
 .ptop{display:flex;align-items:center;gap:10px}
 .pcount{font:800 30px/1 var(--f-display);color:var(--accent);font-variant-numeric:tabular-nums;min-width:64px}
 .ptitle{margin:0;flex:1;min-width:0;font:800 clamp(26px,4vw,42px)/1 var(--f-display);text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pstage{flex:1;min-height:0;display:grid;place-items:center;background:var(--panel2);border-radius:16px;touch-action:none;overflow:hidden}
+.pstage.tall{place-items:start center;overflow-y:auto;overflow-x:hidden;touch-action:pan-y}
 .pstage canvas{display:block;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .pbar{display:flex;gap:12px;height:92px;flex:none}
 .pbtn{flex:1;min-width:0;border-radius:18px;border:1px solid var(--line);background:var(--panel);display:flex;align-items:center;justify-content:center;gap:12px;padding:0 18px;font:800 28px/1 var(--f-display);text-transform:uppercase;text-align:left}

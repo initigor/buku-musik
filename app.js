@@ -195,10 +195,10 @@ function drawStroke(x,s,k){
   x.lineWidth=lw(pp);x.beginPath();x.moveTo(mx0,my0);x.lineTo(px,py);x.stroke();
 }
 /* gambar hanya segmen baru dari coretan yang sedang ditulis; st menyimpan posisi terakhir */
-function strokeInc(x,s,k,st){
+function strokeInc(x,s,k,st,oy=0){
   const a=s.pts,n=a.length/3;if(n<2)return;
   const base=WID[s.w]||WID[1],lw=p=>Math.max(base*(0.45+p*1.1)*k,1.1);
-  if(st.k!==k||!st.i){st.k=k;st.px=a[0]*k;st.py=a[1]*k;st.pp=a[2];st.mx0=st.px;st.my0=st.py;st.i=1;}
+  if(st.k!==k||st.oy!==oy||!st.i){st.k=k;st.oy=oy;st.px=a[0]*k;st.py=a[1]*k;st.pp=a[2];st.mx0=st.px;st.my0=st.py;st.i=1;}
   x.strokeStyle=inkOf(s);x.lineCap='round';x.lineJoin='round';
   for(;st.i<n;st.i++){
     const X=a[st.i*3]*k,Y=a[st.i*3+1]*k,P=a[st.i*3+2],mx=(st.px+X)/2,my=(st.py+Y)/2;
@@ -206,23 +206,45 @@ function strokeInc(x,s,k,st){
     st.mx0=mx;st.my0=my;st.px=X;st.py=Y;st.pp=P;
   }
 }
+/* tinggi halaman: A4, atau lebih panjang jika latar gambar lebih tinggi (bergulir seperti Notes) */
+function pageH(sg,pg){
+  const d=dimOf(sg);
+  return (pg&&pg.bg&&pg.bgr)?Math.max(d.h,Math.round(d.w*pg.bgr)):d.h;
+}
 const bgCache=new WeakMap();let bgT=0;
 function bgGet(pg){
   let c=bgCache.get(pg);
   if(c&&c.src===pg.bg)return c;
   c={src:pg.bg,img:new Image(),ready:false};
-  c.img.onload=()=>{c.ready=true;clearTimeout(bgT);bgT=setTimeout(refreshView,30);};
+  c.img.onload=()=>{
+    c.ready=true;
+    if(!pg.bgr&&c.img.naturalWidth)pg.bgr=c.img.naturalHeight/c.img.naturalWidth;
+    clearTimeout(bgT);bgT=setTimeout(refreshView,30);
+  };
   c.img.src=pg.bg;bgCache.set(pg,c);return c;
 }
-function renderPage(x,sg,pi,k){
-  const d=dimOf(sg),pg=sg.pages[pi];
-  drawPaper(x,sg.paper,k,d);
+/* oy = pergeseran jendela (satuan logis), vh = tinggi jendela logis; tanpa keduanya seluruh halaman digambar */
+function renderPage(x,sg,pi,k,oy=0,vh=0){
+  const d=dimOf(sg),pg=sg.pages[pi],H=pageH(sg,pg);
+  x.save();if(oy)x.translate(0,-oy*k);
+  drawPaper(x,sg.paper,k,{w:d.w,h:H});
   bgInk=!!(pg&&pg.bg);
   if(bgInk){
     const c=bgGet(pg);
-    if(c.ready){const iw=c.img.naturalWidth,ih=c.img.naturalHeight,r=Math.min(d.w/iw,d.h/ih);x.drawImage(c.img,(d.w-iw*r)/2*k,0,iw*r*k,ih*r*k);}
+    if(c.ready){
+      const iw=c.img.naturalWidth,ih=c.img.naturalHeight;
+      if(pg.bgr){const r=d.w/iw;x.drawImage(c.img,0,0,d.w*k,ih*r*k);}
+      else{const r=Math.min(d.w/iw,d.h/ih);x.drawImage(c.img,(d.w-iw*r)/2*k,0,iw*r*k,ih*r*k);}
+    }
   }
-  if(pg)for(const s of pg.strokes)drawStroke(x,s,k);
+  if(pg){
+    const y0=oy-12,y1=oy+vh+12;
+    for(const s of pg.strokes){
+      if(vh){const b=bboxOf(s);if(b[3]<y0||b[1]>y1)continue;}
+      drawStroke(x,s,k);
+    }
+  }
+  x.restore();
 }
 function drawThumb(c,sg){
   if(!sg)return;
@@ -233,38 +255,56 @@ function drawThumb(c,sg){
 }
 
 /* ================= editor ================= */
-const ed={song:null,pi:0,cv:null,ctx:null,base:null,bctx:null,k:1,dpr:1,cur:null,h:{},bound:false};
+const ed={song:null,pi:0,cv:null,ctx:null,base:null,bctx:null,k:1,dpr:1,sc:1,top:0,oy:0,wh:0,H:0,cur:null,h:{},bound:false};
 const edPage=()=>ed.song.pages[ed.pi];
 const edHist=()=>ed.h[ed.pi]||(ed.h[ed.pi]={u:[],r:[]});
 const edDirty=()=>saveSong(ed.song);
 const r1=v=>Math.round(v*10)/10;
 
+/* Kertas bisa sangat panjang, jadi kanvas hanya menutup jendela sekitar layar (sekitar 2 layar tinggi)
+   dan digeser saat menggulir; kertas sebenarnya ada di #edWrap. */
 function edSize(){
-  const st=$('#edStage'),w=st.clientWidth-20;
-  if(!ed.song||w<50||st.clientHeight<50)return;
-  const d=dimOf(ed.song),dpr=Math.min(window.devicePixelRatio||1,2);
-  const sc=w/d.w;                                   /* lebar kertas = lebar layar, sisanya digulir */
-  ed.k=Math.min(sc*dpr,Math.sqrt(12e6/(d.w*d.h)));ed.dpr=dpr;ed.d=d;
-  const c=ed.cv,cw=Math.round(d.w*ed.k),ch=Math.round(d.h*ed.k);
-  c.width=cw;c.height=ch;c.style.width=(d.w*sc)+'px';c.style.height=(d.h*sc)+'px';
+  const st=$('#edStage'),w=st.clientWidth-20,vh=st.clientHeight-20;
+  if(!ed.song||w<50||vh<50)return;
+  const d=dimOf(ed.song),H=pageH(ed.song,edPage());
+  const dpr=Math.min(window.devicePixelRatio||1,2),sc=w/d.w,hc=H*sc;
+  const cap=Math.max(vh,8e6/(w*dpr*dpr));          /* batas ~8 juta piksel per kanvas */
+  const wh=Math.min(hc,Math.max(vh+200,vh*2.2),cap);
+  ed.sc=sc;ed.H=H;ed.dpr=dpr;ed.k=sc*dpr;ed.wh=wh;
+  const vy=Math.max(0,st.scrollTop-10);
+  ed.top=Math.max(0,Math.min(hc-wh,vy-(wh-vh)/2));ed.oy=ed.top/sc;
+  ed.wrap.style.width=w+'px';ed.wrap.style.height=hc+'px';
+  const c=ed.cv,cw=Math.round(w*dpr),ch=Math.round(wh*dpr);
+  c.width=cw;c.height=ch;c.style.width=w+'px';c.style.height=wh+'px';c.style.top=ed.top+'px';
   ed.ctx=c.getContext('2d');
   ed.base=document.createElement('canvas');ed.base.width=cw;ed.base.height=ch;ed.bctx=ed.base.getContext('2d');
   edRebase();
 }
+function edScroll(){
+  if(!ed.song||!ed.base)return;
+  const st=$('#edStage'),vh=st.clientHeight-20,vy=Math.max(0,st.scrollTop-10),hc=ed.H*ed.sc;
+  const lo=ed.top,hi=ed.top+ed.wh,m=Math.min(60,Math.max(0,(ed.wh-vh)/4));
+  if((lo<=0.5||vy>=lo+m)&&(hi>=hc-0.5||vy+vh<=hi-m))return;
+  ed.top=Math.max(0,Math.min(hc-ed.wh,vy-(ed.wh-vh)/2));ed.oy=ed.top/ed.sc;
+  ed.cv.style.top=ed.top+'px';
+  edRebase();   /* langsung di acara scroll: dijalankan sebelum frame berikutnya, jadi tidak ada kedipan */
+}
 function edRebase(){
   if(!ed.bctx||!ed.song)return;
-  readColors();renderPage(ed.bctx,ed.song,ed.pi,ed.k);edPaint();
+  readColors();renderPage(ed.bctx,ed.song,ed.pi,ed.k,ed.oy,ed.wh/ed.sc);edPaint();
 }
 function edPaint(){
   if(!ed.ctx||!ed.base)return;
   const x=ed.ctx;x.drawImage(ed.base,0,0);
   const c=ed.cur;if(!c)return;
+  x.save();x.translate(0,-ed.oy*ed.k);
   if(c.kind==='pen')drawStroke(x,c.s,ed.k);
   else if(c.at){x.strokeStyle=COL.mark;x.lineWidth=1.5*ed.dpr;x.beginPath();x.arc(c.at[0]*ed.k,c.at[1]*ed.k,eraseR()*ed.k,0,6.2832);x.stroke();}
+  x.restore();
 }
 function edPt(e){
   const r=ed.cv.getBoundingClientRect();
-  return [(e.clientX-r.left)/r.width*ed.d.w,(e.clientY-r.top)/r.height*ed.d.h,e.pressure>0?e.pressure:0.5];
+  return [(e.clientX-r.left)/ed.sc,(e.clientY-r.top+ed.top)/ed.sc,e.pressure>0?e.pressure:0.5];
 }
 
 /* penghapus: memotong bagian coretan yang tersentuh lingkaran penghapus, bukan membuang satu coretan utuh */
@@ -322,7 +362,10 @@ const canDraw=e=>e.pointerType==='pen'||e.pointerType==='mouse'||prefs.finger;
 function edDown(e){
   if(!ed.base)return;
   if(e.pointerType==='touch'&&!prefs.finger){  /* jari menggulir kertas, stylus menulis */
-    if(!ed.pan&&!ed.cur){e.preventDefault();ed.pan={id:e.pointerId,y:e.clientY,top:$('#edStage').scrollTop};}
+    if(!ed.pan&&!ed.cur){
+      e.preventDefault();cancelAnimationFrame(ed.fling);
+      ed.pan={id:e.pointerId,y:e.clientY,top:$('#edStage').scrollTop,t:performance.now(),ly:e.clientY,v:0};
+    }
     return;
   }
   if(!canDraw(e))return;
@@ -343,7 +386,12 @@ function edDown(e){
   edPaint();
 }
 function edMove(e){
-  if(ed.pan&&ed.pan.id===e.pointerId){$('#edStage').scrollTop=ed.pan.top-(e.clientY-ed.pan.y);return;}
+  if(ed.pan&&ed.pan.id===e.pointerId){
+    const p=ed.pan,now=performance.now(),dt=Math.max(1,now-p.t);
+    $('#edStage').scrollTop=p.top-(e.clientY-p.y);
+    p.v=0.7*p.v+0.3*((p.ly-e.clientY)/dt);p.ly=e.clientY;p.t=now;
+    return;
+  }
   const c=ed.cur;if(!c||c.id!==e.pointerId)return;
   const ev=e.getCoalescedEvents?e.getCoalescedEvents():[];
   const list=ev.length?ev:[e];
@@ -354,7 +402,9 @@ function edMove(e){
       if(dx*dx+dy*dy<0.3)continue;
       a.push(r1(p[0]),r1(p[1]),Math.round(p[2]*100)/100);
     }
-    strokeInc(ed.ctx,c.s,ed.k,c.rs);           /* hanya segmen baru, tanpa menggambar ulang seluruh kertas */
+    ed.ctx.save();ed.ctx.translate(0,-ed.oy*ed.k);
+    strokeInc(ed.ctx,c.s,ed.k,c.rs,ed.oy);     /* hanya segmen baru, tanpa menggambar ulang seluruh kertas */
+    ed.ctx.restore();
   }else{
     let ch=false;
     for(const q of list){const p=edPt(q);if(eraseTo(c.at,p))ch=true;c.at=p;}
@@ -366,12 +416,28 @@ function edFinish(c){
   if(c.kind==='pen'){
     const hs=edHist(),pg=edPage();
     hs.u.push(pg.strokes.slice());if(hs.u.length>80)hs.u.shift();hs.r.length=0;
-    pg.strokes.push(c.s);drawStroke(ed.bctx,c.s,ed.k);edDirty();
+    pg.strokes.push(c.s);
+    ed.bctx.save();ed.bctx.translate(0,-ed.oy*ed.k);drawStroke(ed.bctx,c.s,ed.k);ed.bctx.restore();
+    edDirty();
   }
   edPaint();edBtns();
 }
+/* gulir lanjut setelah jari diangkat, seperti Notes */
+function edFling(v){
+  const st=$('#edStage');let last=performance.now();
+  const step=t=>{
+    const dt=Math.min(40,t-last);last=t;
+    const before=st.scrollTop;st.scrollTop=before+v*dt;v*=Math.pow(0.92,dt/16);
+    if(Math.abs(v)>0.03&&st.scrollTop!==before&&!ed.pan&&!ed.cur)ed.fling=requestAnimationFrame(step);
+  };
+  ed.fling=requestAnimationFrame(step);
+}
 function edUp(e){
-  if(ed.pan&&ed.pan.id===e.pointerId){ed.pan=null;return;}
+  if(ed.pan&&ed.pan.id===e.pointerId){
+    const v=ed.pan.v,idle=performance.now()-ed.pan.t;ed.pan=null;
+    if(Math.abs(v)>0.15&&idle<80)edFling(v);
+    return;
+  }
   const c=ed.cur;if(!c||c.id!==e.pointerId)return;
   edFinish(c);
 }
@@ -392,7 +458,7 @@ function loadPdfJs(){
   });
   return pdfLibP;
 }
-const IMP_W=1500, IMP_H=2400, IMP_MAX=60;
+const IMP_W=1500, IMP_AREA=12e6, IMP_MAX=60;
 async function fileToBgs(file,prog){
   const jpg=c=>c.toDataURL('image/jpeg',0.82);
   if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){
@@ -402,22 +468,22 @@ async function fileToBgs(file,prog){
     for(let i=1;i<=n;i++){
       prog(i,n);
       const pg=await pdf.getPage(i),v0=pg.getViewport({scale:1});
-      const v=pg.getViewport({scale:Math.min(IMP_W/v0.width,IMP_H/v0.height)});
+      const v=pg.getViewport({scale:Math.min(IMP_W/v0.width,Math.sqrt(IMP_AREA/(v0.width*v0.height)))});
       const c=document.createElement('canvas');c.width=Math.round(v.width);c.height=Math.round(v.height);
       const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
       await pg.render({canvasContext:x,viewport:v}).promise;
-      out.push(jpg(c));c.width=c.height=0;pg.cleanup();
+      out.push({bg:jpg(c),r:c.height/c.width});c.width=c.height=0;pg.cleanup();
     }
     return out;
   }
   const url=URL.createObjectURL(file);
   try{
     const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('img'));im.src=url;});
-    const sc=Math.min(1,IMP_W/img.naturalWidth,IMP_H/img.naturalHeight);
+    const sc=Math.min(1,IMP_W/img.naturalWidth,Math.sqrt(IMP_AREA/(img.naturalWidth*img.naturalHeight)));
     const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.naturalWidth*sc));c.height=Math.max(1,Math.round(img.naturalHeight*sc));
     const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
     prog(1,1);
-    return [jpg(c)];
+    return [{bg:jpg(c),r:c.height/c.width}];
   }finally{URL.revokeObjectURL(url);}
 }
 /* target: 'editor' menambah halaman ke lagu yang terbuka; 'bank' membuat satu lagu per berkas */
@@ -439,14 +505,14 @@ function importNotes(target){
         total+=bgs.length;
         if(target==='bank'){
           const now=Date.now(),t=f.name.replace(/\.[^.]+$/,'').slice(0,80)||'Impor Notes';
-          const s={id:uid(),folderId:ui.q?null:ui.folderId,title:t,bpm:'',meter:'4/4',paper:'blank',size:'a4p',pages:bgs.map(bg=>({strokes:[],bg})),created:now,updated:now};
+          const s={id:uid(),folderId:ui.q?null:ui.folderId,title:t,bpm:'',meter:'4/4',paper:'blank',size:'a4p',pages:bgs.map(o=>({strokes:[],bg:o.bg,bgr:o.r})),created:now,updated:now};
           store.songs.push(s);saveSong(s,true);songs++;
         }else{
           const sg=ed.song,pg=edPage();
           const reuse=!pg.strokes.length&&!pg.bg;
           const start=reuse?ed.pi:ed.pi+1;
-          if(reuse)pg.bg=bgs[0];
-          const rest=(reuse?bgs.slice(1):bgs).map(bg=>({strokes:[],bg}));
+          if(reuse){pg.bg=bgs[0].bg;pg.bgr=bgs[0].r;}
+          const rest=(reuse?bgs.slice(1):bgs).map(o=>({strokes:[],bg:o.bg,bgr:o.r}));
           sg.pages.splice(ed.pi+1,0,...rest);
           ed.h={};saveSong(sg,true);
           if(goto===null)goto=start;
@@ -479,7 +545,7 @@ function edGo(i){
   ed.pi=Math.max(0,Math.min(n-1,i));
   $('#pgLbl').textContent=`Hal ${ed.pi+1}/${n}`;
   $('#edStage').scrollTop=0;
-  edRebase();edBtns();
+  edSize();edBtns();
 }
 async function edMore(){
   const v=await choose('Opsi lagu',[
@@ -496,7 +562,7 @@ async function edMore(){
   }else if(v==='import'){
     importNotes('editor');
   }else if(v==='nobg'){
-    delete edPage().bg;edDirty();edRebase();
+    delete edPage().bg;delete edPage().bgr;edDirty();edSize();
   }else if(v==='size'){
     const cur=ed.song.size||'a4p';
     const z=await choose('Ukuran kertas',Object.keys(SIZES).map(k=>({label:(cur===k?'✓ ':'')+SIZES[k].name,icon:'list',v:k})));
@@ -525,6 +591,9 @@ async function edClear(){
 function initEditor(){
   if(ed.bound)return;ed.bound=true;
   ed.cv=$('#edCanvas');
+  ed.wrap=document.createElement('div');ed.wrap.id='edWrap';
+  ed.cv.parentNode.insertBefore(ed.wrap,ed.cv);ed.wrap.append(ed.cv);
+  $('#edStage').addEventListener('scroll',edScroll,{passive:true});
   const c=ed.cv;
   c.addEventListener('pointerdown',edDown);c.addEventListener('pointermove',edMove);
   c.addEventListener('pointerup',edUp);c.addEventListener('pointercancel',edCancel);
@@ -771,7 +840,7 @@ function openBackup(){
 function refreshView(){
   if(!$('#scr-bank').hidden)renderBank();
   else if(!$('#scr-sets').hidden)renderSets();
-  else if(!$('#scr-editor').hidden)edRebase();
+  else if(!$('#scr-editor').hidden)edSize();
   else if(!$('#scr-perf').hidden)perfDraw();
 }
 /* ================= mode tampil ================= */
@@ -788,11 +857,15 @@ function startPerf(slId,idx){
 function perfDraw(){
   const st=$('#pStage'),w=st.clientWidth-16,h=st.clientHeight-16;
   if(w<50||h<50||!perf.items.length)return;
-  const d=dimOf(perf.items[perf.i]);
-  const sc=Math.min(w/d.w,h/d.h),k=sc*Math.min(window.devicePixelRatio||1,2);
-  const c=$('#pCanvas'),cw=Math.round(d.w*k),ch=Math.round(d.h*k);
-  if(c.width!==cw||c.height!==ch){c.width=cw;c.height=ch;c.style.width=(d.w*sc)+'px';c.style.height=(d.h*sc)+'px';}
-  readColors();renderPage(c.getContext('2d'),perf.items[perf.i],perf.pg,k);
+  const sg=perf.items[perf.i],d=dimOf(sg),H=pageH(sg,sg.pages[perf.pg]);
+  const tall=H>d.h+1;
+  st.classList.toggle('tall',tall);
+  const sc=tall?w/d.w:Math.min(w/d.w,h/d.h);
+  const k=Math.min(sc*Math.min(window.devicePixelRatio||1,2),Math.sqrt(10e6/(d.w*H)));
+  const c=$('#pCanvas'),cw=Math.round(d.w*k),ch=Math.round(H*k);
+  if(c.width!==cw||c.height!==ch){c.width=cw;c.height=ch;}
+  c.style.width=(d.w*sc)+'px';c.style.height=(H*sc)+'px';
+  readColors();renderPage(c.getContext('2d'),sg,perf.pg,k);
 }
 function nextInfo(){
   const s=perf.items[perf.i];
@@ -817,7 +890,7 @@ function perfRender(){
   pb.disabled=!pv;nb.disabled=!nx;
   pb.innerHTML=ic('back')+(pv?`<span>${esc(pv.t)}<small>${pv.s}</small></span>`:'<span>Awal</span>');
   nb.innerHTML=(nx?`<span>${esc(nx.t)}<small>${nx.s}</small></span>`:'<span>Selesai</span>')+ic('next');
-  perfDraw();perfList();
+  $('#pStage').scrollTop=0;perfDraw();perfList();
 }
 function perfList(){
   $('#pDrawerList').innerHTML=perf.items.map((s,i)=>`<button class="row-btn ${i===perf.i?'cur':''}" data-pi="${i}"><span class="n s">${i+1}</span><span>${esc(trk(s))}</span><span class="s">${s.bpm?s.bpm:''}</span></button>`).join('');
