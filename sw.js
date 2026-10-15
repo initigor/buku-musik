@@ -1,7 +1,7 @@
 /* Service worker Buku Chart: simpan semua berkas ke cache agar bisa dibuka tanpa internet.
    Naikkan angka versi di bawah setiap kali kamu mengubah index.html. */
-const V = 'buku-chart-v2';
-const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './styles.css', './app.js'];
+const V = 'buku-chart-v3';
+const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './styles.css', './app.js', './vendor/pdf.min.js', './vendor/pdf.worker.min.js'];
 const FONT = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 
 self.addEventListener('install', e => {

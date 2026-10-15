@@ -25,6 +25,8 @@ function applyTheme(){
   $('#themeLbl').textContent=THEME_LBL[prefs.theme];
 }
 const COL={paper:'#fff',staff:'#bbb',note:'#000',mark:'#d33'};
+let bgInk=false;  /* halaman dengan latar gambar selalu putih: pakai tinta gelap meski tema gelap */
+const inkOf=s=>bgInk?(s.c?'#d6362b':'#0b0f14'):(s.c?COL.mark:COL.note);
 function readColors(){const cs=getComputedStyle(document.documentElement);for(const k in COL){const v=cs.getPropertyValue('--'+k).trim();if(v)COL[k]=v;}}
 
 /* ================= penyimpanan lokal (IndexedDB) ================= */
@@ -182,7 +184,7 @@ function drawStroke(x,s,k){
   const a=s.pts,n=a.length/3;if(!n)return;
   const base=WID[s.w]||WID[1];
   const lw=p=>Math.max(base*(0.45+p*1.1)*k,1.1);
-  x.strokeStyle=x.fillStyle=s.c?COL.mark:COL.note;x.lineCap='round';x.lineJoin='round';
+  x.strokeStyle=x.fillStyle=inkOf(s);x.lineCap='round';x.lineJoin='round';
   if(n===1){x.beginPath();x.arc(a[0]*k,a[1]*k,lw(a[2])/2,0,6.2832);x.fill();return;}
   let px=a[0]*k,py=a[1]*k,pp=a[2],mx0=px,my0=py;
   for(let i=1;i<n;i++){
@@ -197,16 +199,30 @@ function strokeInc(x,s,k,st){
   const a=s.pts,n=a.length/3;if(n<2)return;
   const base=WID[s.w]||WID[1],lw=p=>Math.max(base*(0.45+p*1.1)*k,1.1);
   if(st.k!==k||!st.i){st.k=k;st.px=a[0]*k;st.py=a[1]*k;st.pp=a[2];st.mx0=st.px;st.my0=st.py;st.i=1;}
-  x.strokeStyle=s.c?COL.mark:COL.note;x.lineCap='round';x.lineJoin='round';
+  x.strokeStyle=inkOf(s);x.lineCap='round';x.lineJoin='round';
   for(;st.i<n;st.i++){
     const X=a[st.i*3]*k,Y=a[st.i*3+1]*k,P=a[st.i*3+2],mx=(st.px+X)/2,my=(st.py+Y)/2;
     x.lineWidth=lw((st.pp+P)/2);x.beginPath();x.moveTo(st.mx0,st.my0);x.quadraticCurveTo(st.px,st.py,mx,my);x.stroke();
     st.mx0=mx;st.my0=my;st.px=X;st.py=Y;st.pp=P;
   }
 }
+const bgCache=new WeakMap();let bgT=0;
+function bgGet(pg){
+  let c=bgCache.get(pg);
+  if(c&&c.src===pg.bg)return c;
+  c={src:pg.bg,img:new Image(),ready:false};
+  c.img.onload=()=>{c.ready=true;clearTimeout(bgT);bgT=setTimeout(refreshView,30);};
+  c.img.src=pg.bg;bgCache.set(pg,c);return c;
+}
 function renderPage(x,sg,pi,k){
-  drawPaper(x,sg.paper,k,dimOf(sg));
-  const pg=sg.pages[pi];if(pg)for(const s of pg.strokes)drawStroke(x,s,k);
+  const d=dimOf(sg),pg=sg.pages[pi];
+  drawPaper(x,sg.paper,k,d);
+  bgInk=!!(pg&&pg.bg);
+  if(bgInk){
+    const c=bgGet(pg);
+    if(c.ready){const iw=c.img.naturalWidth,ih=c.img.naturalHeight,r=Math.min(d.w/iw,d.h/ih);x.drawImage(c.img,(d.w-iw*r)/2*k,0,iw*r*k,ih*r*k);}
+  }
+  if(pg)for(const s of pg.strokes)drawStroke(x,s,k);
 }
 function drawThumb(c,sg){
   if(!sg)return;
@@ -315,7 +331,7 @@ function edDown(e){
     if(ed.cur.pt==='pen'&&e.pointerType==='touch')return;
     edFinish(ed.cur);
   }
-  e.preventDefault();
+  e.preventDefault();bgInk=!!edPage().bg;
   try{ed.cv.setPointerCapture(e.pointerId);}catch(_){}
   const p=edPt(e);
   if(prefs.tool==='eraser'||(e.pointerType==='pen'&&(e.buttons&32))){
@@ -364,6 +380,89 @@ function edCancel(e){
   if(ed.cur&&ed.cur.id===e.pointerId)edFinish(ed.cur);   /* simpan yang sudah tertulis, jangan dibuang */
 }
 
+/* ================= impor dari Notes (PDF / gambar) ================= */
+/* Hasilnya jadi latar halaman (pg.bg, data URL JPEG); coretan baru ditulis di atasnya dan tidak ikut terhapus oleh penghapus. */
+let pdfLibP=null;
+function loadPdfJs(){
+  if(!pdfLibP)pdfLibP=new Promise((res,rej)=>{
+    const s=document.createElement('script');s.src='vendor/pdf.min.js';
+    s.onload=()=>{pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';res(pdfjsLib);};
+    s.onerror=()=>{pdfLibP=null;rej(new Error('pdfjs'));};
+    document.head.append(s);
+  });
+  return pdfLibP;
+}
+const IMP_W=1500, IMP_H=2400, IMP_MAX=60;
+async function fileToBgs(file,prog){
+  const jpg=c=>c.toDataURL('image/jpeg',0.82);
+  if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){
+    const lib=await loadPdfJs();
+    const pdf=await lib.getDocument({data:await file.arrayBuffer()}).promise;
+    const n=Math.min(pdf.numPages,IMP_MAX),out=[];
+    for(let i=1;i<=n;i++){
+      prog(i,n);
+      const pg=await pdf.getPage(i),v0=pg.getViewport({scale:1});
+      const v=pg.getViewport({scale:Math.min(IMP_W/v0.width,IMP_H/v0.height)});
+      const c=document.createElement('canvas');c.width=Math.round(v.width);c.height=Math.round(v.height);
+      const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+      await pg.render({canvasContext:x,viewport:v}).promise;
+      out.push(jpg(c));c.width=c.height=0;pg.cleanup();
+    }
+    return out;
+  }
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('img'));im.src=url;});
+    const sc=Math.min(1,IMP_W/img.naturalWidth,IMP_H/img.naturalHeight);
+    const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.naturalWidth*sc));c.height=Math.max(1,Math.round(img.naturalHeight*sc));
+    const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
+    prog(1,1);
+    return [jpg(c)];
+  }finally{URL.revokeObjectURL(url);}
+}
+/* target: 'editor' menambah halaman ke lagu yang terbuka; 'bank' membuat satu lagu per berkas */
+function importNotes(target){
+  const inp=html('<input class="field" type="file" accept="application/pdf,image/*" multiple>');
+  const msg=html('<p class="msg s"></p>');
+  const body=html(`<div><p class="msg">Dari Notes: buka catatan, ketuk Bagikan, pilih Cetak, cubit-keluar pratinjau halaman sampai jadi PDF, ketuk Bagikan lagi, lalu Simpan ke Berkas. Pilih PDF itu di bawah. Screenshot atau gambar juga bisa. Langkah di Notes bisa sedikit berbeda antar versi iPadOS.</p>
+    <p class="msg s">Hasilnya menjadi latar halaman. Kamu bisa menulis di atasnya; isi Notes sendiri tidak bisa dihapus atau diedit.</p></div>`);
+  body.append(inp,msg);
+  inp.addEventListener('change',async()=>{
+    const files=Array.from(inp.files||[]);if(!files.length)return;
+    inp.disabled=true;
+    let total=0,songs=0,goto=null;
+    try{
+      for(const f of files){
+        msg.textContent=`Membaca ${f.name}…`;
+        const bgs=await fileToBgs(f,(i,n)=>{msg.textContent=`${f.name}: halaman ${i}/${n}…`;});
+        if(!bgs.length)continue;
+        total+=bgs.length;
+        if(target==='bank'){
+          const now=Date.now(),t=f.name.replace(/\.[^.]+$/,'').slice(0,80)||'Impor Notes';
+          const s={id:uid(),folderId:ui.q?null:ui.folderId,title:t,bpm:'',meter:'4/4',paper:'blank',size:'a4p',pages:bgs.map(bg=>({strokes:[],bg})),created:now,updated:now};
+          store.songs.push(s);saveSong(s,true);songs++;
+        }else{
+          const sg=ed.song,pg=edPage();
+          const reuse=!pg.strokes.length&&!pg.bg;
+          const start=reuse?ed.pi:ed.pi+1;
+          if(reuse)pg.bg=bgs[0];
+          const rest=(reuse?bgs.slice(1):bgs).map(bg=>({strokes:[],bg}));
+          sg.pages.splice(ed.pi+1,0,...rest);
+          ed.h={};saveSong(sg,true);
+          if(goto===null)goto=start;
+        }
+      }
+      closeModal(undefined);
+      if(target==='bank'){ui.q='';renderBank();toast(`Diimpor: ${songs} lagu, ${total} halaman`);}
+      else{edGo(goto===null?ed.pi:goto);toast(`Diimpor: ${total} halaman`);}
+    }catch(e){
+      inp.disabled=false;inp.value='';
+      msg.textContent='Gagal membaca berkas. Pastikan itu PDF atau gambar, lalu coba lagi.';
+    }
+  });
+  openModal('Impor dari Notes',body,[{label:'Tutup',v:null}]);
+}
+
 function edUndo(){const hs=edHist();if(!hs.u.length)return;hs.r.push(edPage().strokes.slice());edPage().strokes=hs.u.pop();edRebase();edDirty();edBtns();}
 function edRedo(){const hs=edHist();if(!hs.r.length)return;hs.u.push(edPage().strokes.slice());edPage().strokes=hs.r.pop();edRebase();edDirty();edBtns();}
 function edBtns(){
@@ -385,6 +484,8 @@ function edGo(i){
 async function edMore(){
   const v=await choose('Opsi lagu',[
     {label:'Ganti jenis kertas',icon:'pen',v:'paper'},
+    {label:'Impor dari Notes (PDF / gambar)',icon:'save',v:'import'},
+    ...(edPage().bg?[{label:'Hapus latar gambar halaman ini',icon:'trash',v:'nobg'}]:[]),
     {label:'Ukuran kertas: '+dimOf(ed.song).name,icon:'list',v:'size'},
     {label:prefs.finger?'Gambar dengan jari: hidup':'Gambar dengan jari: mati',icon:'pen',v:'finger'},
     {label:'Hapus halaman ini',icon:'trash',danger:true,v:'del'}
@@ -392,6 +493,10 @@ async function edMore(){
   if(v==='paper'){
     const p=await choose('Jenis kertas',Object.keys(PAPERS).filter(k=>!PAPERS[k].legacy||ed.song.paper===k).map(k=>({label:(ed.song.paper===k?'✓ ':'')+PAPERS[k].name,icon:'list',v:k})));
     if(p){ed.song.paper=p;edDirty();edRebase();}
+  }else if(v==='import'){
+    importNotes('editor');
+  }else if(v==='nobg'){
+    delete edPage().bg;edDirty();edRebase();
   }else if(v==='size'){
     const cur=ed.song.size||'a4p';
     const z=await choose('Ukuran kertas',Object.keys(SIZES).map(k=>({label:(cur===k?'✓ ':'')+SIZES[k].name,icon:'list',v:k})));
@@ -471,6 +576,7 @@ function renderBank(){
   root.innerHTML=`<div class="ph"><h1>Bank Lagu</h1><span class="sp"></span>
     <input class="field search" id="bankQ" type="search" placeholder="Cari judul lagu" aria-label="Cari judul lagu" value="${esc(ui.q)}">
     <button class="btn" id="newFolder">${ic('folder')}Folder baru</button>
+    <button class="btn" id="impNotes">${ic('save')}Impor Notes</button>
     <button class="btn primary" id="newSong">${ic('plus')}Lagu baru</button></div>
     <div class="crumbs" id="bankCrumbs"></div><div class="scroll"><div class="grid" id="bankGrid"></div></div>`;
   fillBank();
@@ -543,6 +649,7 @@ function initBank(){
     const t=e.target.closest('button');if(!t)return;
     if(t.id==='newSong')newSong();
     else if(t.id==='newFolder')newFolder();
+    else if(t.id==='impNotes')importNotes('bank');
     else if(t.dataset.openFolder!==undefined){ui.folderId=t.dataset.openFolder;ui.q='';renderBank();}
     else if(t.dataset.openSong)openEditor(t.dataset.openSong);
     else if(t.dataset.moreSong)songMenu(t.dataset.moreSong);
