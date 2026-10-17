@@ -248,10 +248,9 @@ function renderPage(x,sg,pi,k,oy=0,vh=0){
 }
 function drawThumb(c,sg){
   if(!sg)return;
-  const d=dimOf(sg),k=Math.min(480/d.w,320/d.h),x=c.getContext('2d');
-  c.width=480;c.height=320;
-  x.save();x.translate((480-d.w*k)/2,(320-d.h*k)/2);
-  renderPage(x,sg,0,k);x.restore();
+  const d=dimOf(sg),a=Math.max(.5,Math.min(1.6,d.w/d.h)),h=480,w=Math.round(h*a);
+  c.width=w;c.height=h;
+  renderPage(c.getContext('2d'),sg,0,h/d.h);
 }
 
 /* ================= editor ================= */
@@ -635,19 +634,21 @@ function closeEditor(){
 const ui={folderId:null,q:'',slId:null};
 function show(id){
   $$('.screen').forEach(s=>{s.hidden=s.id!==id;});
-  $('#app').dataset.mode=(id==='scr-editor'||id==='scr-perf')?'full':'nav';
+  const mode=(id==='scr-editor'||id==='scr-perf')?'full':'nav';
+  $('#app').dataset.mode=mode;document.body.dataset.mode=mode;
   $$('.rbtn[data-nav]').forEach(b=>b.setAttribute('aria-current',String((id==='scr-bank'&&b.dataset.nav==='bank')||(id==='scr-sets'&&b.dataset.nav==='sets'))));
 }
 
 /* ================= bank lagu ================= */
+const hero=(title,btns)=>`<div class="hero"><h1>${title}</h1><div class="hero-act">${btns}</div><div class="hero-art" aria-hidden="true"></div></div>`;
 function renderBank(){
   const root=$('#scr-bank');
-  root.innerHTML=`<div class="ph"><h1>Bank Lagu</h1><span class="sp"></span>
-    <input class="field search" id="bankQ" type="search" placeholder="Cari judul lagu" aria-label="Cari judul lagu" value="${esc(ui.q)}">
-    <button class="btn" id="newFolder">${ic('folder')}Folder baru</button>
-    <button class="btn" id="impNotes">${ic('save')}Impor Notes</button>
-    <button class="btn primary" id="newSong">${ic('plus')}Lagu baru</button></div>
-    <div class="crumbs" id="bankCrumbs"></div><div class="scroll"><div class="grid" id="bankGrid"></div></div>`;
+  root.innerHTML=hero('Bank Lagu',`<button class="btn primary" id="newSong">${ic('plus')}Lagu baru</button>
+      <button class="btn" id="impNotes">${ic('save')}Impor Notes</button>`)+
+    `<div class="sbody"><div class="stools"><div class="crumbs" id="bankCrumbs"></div>
+      <input class="field search" id="bankQ" type="search" placeholder="Cari judul lagu" aria-label="Cari judul lagu" value="${esc(ui.q)}">
+      <button class="btn" id="newFolder">${ic('folder')}Folder baru</button></div>
+      <div class="scroll"><div class="grid" id="bankGrid"></div></div></div>`;
   fillBank();
 }
 function fillBank(){
@@ -660,9 +661,9 @@ function fillBank(){
   const g=$('#bankGrid');
   g.innerHTML=subs.map(f=>{
     const ns=store.songs.filter(s=>s.folderId===f.id).length,nf=store.folders.filter(x=>x.parentId===f.id).length;
-    return `<div class="card fold"><button class="open" data-open-folder="${f.id}"><span class="ficon">${ic('folder')}</span><span><span class="t">${esc(f.name)}</span><span class="s">${ns} lagu${nf?' · '+nf+' folder':''}</span></span></button>
+    return `<div class="card doc fold"><button class="open" data-open-folder="${f.id}"><span class="ficon">${ic('folder')}</span><span><span class="t">${esc(f.name)}</span><span class="s">${ns} lagu${nf?' · '+nf+' folder':''}</span></span></button>
       <button class="icon-btn more" data-more-folder="${f.id}" aria-label="Opsi folder">${ic('more')}</button></div>`;
-  }).join('')+songs.map(s=>`<div class="card"><button class="open" data-open-song="${s.id}"><canvas class="thumb" data-thumb="${s.id}"></canvas>
+  }).join('')+songs.map(s=>`<div class="card doc"><button class="open" data-open-song="${s.id}"><span class="thumb-box"><canvas class="thumb" data-thumb="${s.id}"></canvas></span>
       <span class="meta"><span class="t">${esc(s.title||'Tanpa judul')}</span><span class="s">${s.bpm?s.bpm+' BPM · ':''}${esc(s.meter||'4/4')} · ${s.pages.length} hal${q?' · '+esc(pathLabel(s.folderId)):''}</span></span></button>
       <button class="icon-btn more" data-more-song="${s.id}" aria-label="Opsi lagu">${ic('more')}</button></div>`).join('')||'';
   if(!subs.length&&!songs.length)g.innerHTML=`<div class="empty" style="grid-column:1/-1">${q?'Tidak ada lagu dengan judul itu.':'Folder ini masih kosong. Tekan “Lagu baru” untuk mulai menulis notasi.'}</div>`;
@@ -742,12 +743,12 @@ function renderSets(){
       <button class="icon-btn" data-down="${i}" aria-label="Turunkan" ${i===sl.items.length-1?'disabled':''}>${ic('down')}</button>
       <button class="icon-btn" data-del="${i}" aria-label="Keluarkan dari setlist">${ic('x')}</button></div>`;
   }).join('');
-  root.innerHTML=`<div class="ph"><button class="icon-btn" id="slBack" aria-label="Kembali ke daftar setlist">${ic('back')}</button>
-    <h1>${esc(sl.name)}</h1><button class="icon-btn" id="slRename" aria-label="Ganti nama setlist">${ic('pen')}</button><span class="sp"></span>
-    <label class="mini">Tanggal<input class="field" type="date" id="slDate" value="${esc(sl.date||'')}" style="width:auto"></label>
-    <button class="btn" id="slAdd">${ic('plus')}Tambah lagu</button>
-    <button class="btn primary" id="slPlay">${ic('play')}Mulai tampil</button></div>
-    <div class="scroll"><div class="rows">${rows||'<div class="empty">Setlist masih kosong. Tekan “Tambah lagu” lalu pilih dari bank lagu.</div>'}</div></div>`;
+  root.innerHTML=hero(esc(sl.name),`<button class="btn primary" id="slPlay">${ic('play')}Mulai tampil</button>
+      <button class="btn" id="slAdd">${ic('plus')}Tambah lagu</button>`)+
+    `<div class="sbody"><div class="stools"><button class="icon-btn" id="slBack" aria-label="Kembali ke daftar setlist">${ic('back')}</button>
+      <button class="icon-btn" id="slRename" aria-label="Ganti nama setlist">${ic('pen')}</button><span class="sp"></span>
+      <label class="mini">Tanggal<input class="field" type="date" id="slDate" value="${esc(sl.date||'')}" style="width:auto"></label></div>
+      <div class="scroll"><div class="rows">${rows||'<div class="empty">Setlist masih kosong. Tekan “Tambah lagu” lalu pilih dari bank lagu.</div>'}</div></div></div>`;
 }
 function renderSetList(root){
   const cards=store.setlists.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created).map(l=>{
@@ -756,8 +757,8 @@ function renderSetList(root){
       <span class="s">${l.date?esc(fmtDate(l.date))+' · ':''}${l.items.length} lagu</span><span class="s">${esc(names)}</span></button>
       <button class="icon-btn more" data-more-set="${l.id}" aria-label="Opsi setlist">${ic('more')}</button></div>`;
   }).join('');
-  root.innerHTML=`<div class="ph"><h1>Setlist</h1><span class="sp"></span><button class="btn primary" id="newSet">${ic('plus')}Setlist baru</button></div>
-    <div class="scroll"><div class="grid">${cards||'<div class="empty" style="grid-column:1/-1">Belum ada setlist. Buat satu untuk acara berikutnya, lalu pilih lagu dari bank.</div>'}</div></div>`;
+  root.innerHTML=hero('Setlist',`<button class="btn primary" id="newSet">${ic('plus')}Setlist baru</button>`)+
+    `<div class="sbody"><div class="scroll"><div class="grid cards">${cards||'<div class="empty" style="grid-column:1/-1">Belum ada setlist. Buat satu untuk acara berikutnya, lalu pilih lagu dari bank.</div>'}</div></div></div>`;
 }
 async function newSetlist(){
   const n=await askText('Setlist baru','Nama acara','','Buat');if(!n)return;
